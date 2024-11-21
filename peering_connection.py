@@ -53,8 +53,22 @@ if not lab_vpc_id or not shared_vpc_id:
     print("Lab VPC or Shared VPC not found. Please check the CIDR blocks.")
 else:
     print("No Vpc Founed")
-    
-        
+
+# List all VPCs for debugging purposes
+  print("Listing all VPCs:")
+vpcs = ec2_client.describe_vpcs()['Vpcs']
+for vpc in vpcs:
+    print(f"VPC ID: {vpc['VpcId']}, CIDR Block: {vpc['CidrBlock']}")
+    # Assuming route tables need to be configured here...
+    # Add your code for route table updates and flow logs here.
+  # Step 2: Retrieve all VPCs in the account
+vpcs = ec2_client.describe_vpcs()['Vpcs']
+vpc_ids = [vpc['VpcId'] for vpc in vpcs]
+print("VPC IDs:")
+for vpc_id in vpc_ids:
+    print(f" - {vpc_id}")
+    print()
+  
 # Step 3: Retrieve Route Tables for both VPCs
     route_tables_lab = ec2_client.describe_route_tables(
         Filters=[{'Name': 'vpc-id', 'Values': [lab_vpc_id]}]
