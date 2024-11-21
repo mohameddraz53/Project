@@ -1,6 +1,8 @@
-                                  ##------------------------------------VPC_Peering_Connection_Project-------------------------------------------##
+
+                      ##-------------------------------------VPC_Peering_Connection_Creation_Project------------------------------------------##
 import boto3
 import time
+import json
 import datetime 
 import os
 # Access AWS credentials from environment variables
@@ -8,242 +10,121 @@ aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID')
 aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
 aws_default_region = os.getenv('AWS_DEFAULT_REGION')
 
-# Initialize a session using your default profile
-session = boto3.Session()
-ec2_client = session.client('ec2')
 
-# Initialize the Boto3 client for EC2 and STS
-ec2_client = boto3.client('ec2')
-sts_client = boto3.client('sts')
-
-# Initialize the Boto3 client for EC2
+# Initialize boto3 clients
 ec2_client = boto3.client('ec2')
 logs_client = boto3.client('logs')
-# Step 1: Retrieve the AWS Account ID
-account_id = sts_client.get_caller_identity()['Account']
-print(f"AWS Account ID: {account_id}")
 
-# Function to retrieve VPC IDs based on CIDR block
-def get_vpc_id(cidr_block):
-    vpcs = ec2_client.describe_vpcs()['Vpcs']
-    for vpc in vpcs:
-        if vpc['CidrBlock'] == cidr_block:
-            return vpc['VpcId']
-    return None
+# Describe VPCs
+print("Describing VPCs...")
+vpcs = ec2_client.describe_vpcs()
+lab_vpc_id = next((vpc['VpcId'] for vpc in vpcs['Vpcs'] if 'Tags' in vpc and any(tag['Key'] == 'Name' and tag['Value'] == 'Lab VPC' for tag in vpc['Tags'])), None)
+shared_vpc_id = next((vpc['VpcId'] for vpc in vpcs['Vpcs'] if 'Tags' in vpc and any(tag['Key'] == 'Name' and tag['Value'] == 'Shared VPC' for tag in vpc['Tags'])), None)
 
-
-# Define CIDR blocks for Lab and Shared VPCs
-lab_vpc_cidr = '10.0.0.0/16'
-shared_vpc_cidr = '10.0.5.0/16'
-
-
-# Step 2 : Retrieve VPC IDs
-lab_vpc_id = get_vpc_id(lab_vpc_cidr)
-shared_vpc_id = get_vpc_id(shared_vpc_cidr)
-
-
-# Print VPC IDs
 print(f"Lab VPC ID: {lab_vpc_id}")
 print(f"Shared VPC ID: {shared_vpc_id}")
 
+# Describe Route Tables
+print("Describing Route Tables...")
+route_tables = ec2_client.describe_route_tables()
+lab_route_table_id = next((rt['RouteTableId'] for rt in route_tables['RouteTables'] if 'Tags' in rt and any(tag['Key'] == 'Name' and tag['Value'] == 'Lab Private Route Table' for tag in rt['Tags'])), None)
+shared_route_table_id = next((rt['RouteTableId'] for rt in route_tables['RouteTables'] if 'Tags' in rt and any(tag['Key'] == 'Name' and tag['Value'] == 'Shared-VPC Route Table' for tag in rt['Tags'])), None)
 
+print(f"Lab Route Table ID: {lab_route_table_id}")
+print(f"Shared Route Table ID: {shared_route_table_id}")
 
-# Check if VPC IDs were found
-if not lab_vpc_id or not shared_vpc_id:
-    print("Lab VPC or Shared VPC not found. Please check the CIDR blocks.")
-else:
-    print("No Vpc Founed")
+# Create VPC Peering Connection
+print("Creating VPC Peering Connection...")
+peering_response = ec2_client.create_vpc_peering_connection(
+    VpcId=lab_vpc_id,
+    PeerVpcId=shared_vpc_id,
+    TagSpecifications=[{'ResourceType': 'vpc-peering-connection', 'Tags': [{'Key': 'Name', 'Value': 'Lab-Peer'}]}]
+)
+peering_id = peering_response['VpcPeeringConnection']['VpcPeeringConnectionId']
+print(f"Peering Connection ID: {peering_id}")
 
-# List all VPCs for debugging purposes
-  print("Listing all VPCs:")
-vpcs = ec2_client.describe_vpcs()['Vpcs']
-for vpc in vpcs:
-    print(f"VPC ID: {vpc['VpcId']}, CIDR Block: {vpc['CidrBlock']}")
-    # Assuming route tables need to be configured here...
-    # Add your code for route table updates and flow logs here.
-  # Step 2: Retrieve all VPCs in the account
-vpcs = ec2_client.describe_vpcs()['Vpcs']
-vpc_ids = [vpc['VpcId'] for vpc in vpcs]
-print("VPC IDs:")
-for vpc_id in vpc_ids:
-    print(f" - {vpc_id}")
-    print()
-  
-# Step 3: Retrieve Route Tables for both VPCs
-    route_tables_lab = ec2_client.describe_route_tables(
-        Filters=[{'Name': 'vpc-id', 'Values': [lab_vpc_id]}]
-    )['RouteTables']
+# Accept VPC Peering Connection
+print("Accepting VPC Peering Connection...")
+ec2_client.accept_vpc_peering_connection(VpcPeeringConnectionId=peering_id)
 
-    route_tables_shared = ec2_client.describe_route_tables(
-        Filters=[{'Name': 'vpc-id', 'Values': [shared_vpc_id]}]
-    )['RouteTables']
+# Create Routes
+print("Creating routes in route tables...")
+ec2_client.create_route(RouteTableId=lab_route_table_id, DestinationCidrBlock='10.5.0.0/16', VpcPeeringConnectionId=peering_id)
+ec2_client.create_route(RouteTableId=shared_route_table_id, DestinationCidrBlock='10.0.0.0/16', VpcPeeringConnectionId=peering_id)
 
-
-
-    # Create VPC peering connection
-    peering_connection = ec2_client.create_vpc_peering_connection(
-        VpcId=lab_vpc_id,
-        PeerVpcId=shared_vpc_id
-    )
-    print(f"VPC Peering Connection ID: {peering_connection['VpcPeeringConnection']['VpcPeeringConnectionId']}")
- # Step 2: Accept the VPC Peering Connection
-peering_connection_id = peering_connection['VpcPeeringConnection']['VpcPeeringConnectionId']
-ec2_client.accept_vpc_peering_connection(VpcPeeringConnectionId=peering_connection_id)
-
-
-# Step 4: Retrieve all VPC peering connections in the account
-peering_connections = ec2_client.describe_vpc_peering_connections()['VpcPeeringConnections']
-print("VPC Peering Connections:")
-for pc in peering_connections:
-    print(f" - Peering Connection ID: {pc['VpcPeeringConnectionId']}, Status: {pc['Status']['Code']}, VPCs: {pc['AccepterVpcInfo']['VpcId']} <-> {pc['RequesterVpcInfo']['VpcId']}")
-
-
-# Assign Lab VPC based on its CIDR block
-lab_vpc = next((vpc for vpc in vpcs if vpc['CidrBlock'] == '10.0.0.0/16'), None)
-if lab_vpc:
-    lab_vpc_id = lab_vpc['VpcId']
-    print(f"Lab VPC ID: {lab_vpc_id}")
-else:
-    lab_vpc_id = None
-    print("Lab VPC not found.")
-    
-    
-# Define VPC IDs (replace these with your actual VPC IDs)
-lab_vpc_id = lab_vpc_id # Replace with your lab VPC ID
-
-
-
-# Assign Shared VPC based on its CIDR block
-shared_vpc = next((vpc for vpc in vpcs if vpc['CidrBlock'] == '10.0.5.0/16'), None)
-if shared_vpc:
-    shared_vpc_id = shared_vpc['VpcId']
-    print(f"Shared VPC ID: {shared_vpc_id}")
-else:
-    shared_vpc_id = None
-    print("Shared VPC not found.")
-shared_vpc_id = shared_vpc_id  # Replace with your shared VPC ID
-
-
-
-# Step 4: Add routes to the route tables
-for rt in route_tables_lab:
-    ec2_client.create_route(
-        RouteTableId='${route_tables_lab}',
-        DestinationCidrBlock='10.0.5.0/16',  # Shared VPC CIDR
-        VpcPeeringConnectionId=peering_connection_id
-    )
-    print(f'Added route to {rt["RouteTableId"]} for shared VPC.')
-
-for rt in route_tables_shared:
-    ec2_client.create_route(
-        RouteTableId='${route_tables_shared}',
-        DestinationCidrBlock='10.0.0.0/16',  # Lab VPC CIDR
-        VpcPeeringConnectionId=peering_connection_id
-    )
-    print(f'Added route to {rt["RouteTableId"]} for lab VPC.')
-
-
-
-# Step 5: Create CloudWatch Log Group for Flow Logs
+# Create CloudWatch Log Group
 log_group_name = 'ShareVPCFlowLogs'
-logs_client.create_log_group(LogGroupName=log_group_name)
-print(f'Created CloudWatch Log Group: {log_group_name}')
+print(f"Creating CloudWatch Log Group: {log_group_name}...")
+logs_client.create_log_group(logGroupName=log_group_name)
 
-
-
-
-# Step 6: Create Flow Logs
-flow_logs_role = 'vpc-flow-logs-Role'  # Replace with your IAM role for VPC Flow Logs
-flow_log_response = ec2_client.create_flow_logs(
-    ResourceIds=[lab_vpc_id, shared_vpc_id],
+# Create Flow Logs
+print("Creating Flow Logs...")
+ec2_client.create_flow_logs(
+    ResourceIds=[shared_vpc_id],
     ResourceType='VPC',
     TrafficType='ALL',
+    LogDestinationType='cloud-watch-logs',
     LogGroupName=log_group_name,
-    DeliverLogsPermissionArn=f'arn:aws:iam::{boto3.client("sts").get_caller_identity()["Account"]}:role/{flow_logs_role}'
+    DeliverLogsPermissionArn='arn:aws:iam::146904539270:role/vpc-flow-logs-Role',
+    MaxAggregationInterval=60
 )
-print('Flow logs created:', flow_log_response['FlowLogIds'])
 
-
-
-# Function to retrieve flow logs from the specified log group
+# Fetch Flow Logs
 def get_flow_logs(log_group_name, start_time, end_time):
-    query = f"""
-    fields @timestamp, srcAddr, dstAddr, srcPort, dstPort, protocol, action
-    | sort @timestamp desc
-    | limit 100
-    """
-    
-    # Start query
-    start_query_response = logs_client.start_query(
+    query = "fields @timestamp, srcAddr, dstAddr, srcPort, dstPort, protocol, action | sort @timestamp desc | limit 100"
+    print("Starting flow log query...")
+    query_id = logs_client.start_query(
         logGroupName=log_group_name,
         startTime=start_time,
         endTime=end_time,
         queryString=query
-    )
-    
-    query_id = start_query_response['queryId']
-    
-    # Wait for query to complete
-    response = None
-    while response == None or response['status'] == 'Running':
-        print("Waiting for query to complete...")
+    )['queryId']
+
+    print("Waiting for query results...")
+    while True:
+        result = logs_client.get_query_results(queryId=query_id)
+        if result['status'] == 'Complete':
+            return result['results']
         time.sleep(1)
-        response = logs_client.get_query_results(
-            queryId=query_id
-        )
-    
-    return response['results']
 
-
-
-# Set time range for the query
-end_time = int(datetime.datetime.now().timestamp()) * 1000  # Current time in milliseconds
-start_time = end_time - (60 * 60 * 1000)  # Last hour
-
-
-
-# Fetch flow logs
-flow_logs = get_flow_logs(log_group_name, start_time, end_time)
-
-
-# Function to get log events from a specific log stream
-def get_log_events(log_group_name, log_stream_name):
-    try:
-        response = logs_client.get_log_events(
-            logGroupName=log_group_name,
-            logStreamName=log_stream_name,
-            startFromHead=True
-        )
-        events = response['events']
-        print(f"Log events from {log_stream_name}:")
-        for event in events:
-            print(f"Timestamp: {event['timestamp']}, Message: {event['message']}")
-    except Exception as e:
-        print(f"Error retrieving log events: {e}")
-        
-# Function to retrieve CloudWatch log streams
+# Get Log Streams
 def get_log_streams(log_group_name):
-    try:
-        response = logs_client.describe_log_streams(
-            logGroupName=log_group_name,
-            orderBy='LastEventTime',
-            descending=True,
-            limit=5  # Limit the number of log streams to retrieve
-        )
-        log_streams = response['logStreams']
-        if log_streams:
-            print(f"Log streams in log group {log_group_name}:")
-            for stream in log_streams:
-                print(f"Log Stream: {stream['logStreamName']}, Last Event: {stream['lastIngestionTime']}")
-        else:
-            print("No log streams found.")
-    except Exception as e:
-        print(f"Error retrieving log streams: {e}")    
-         
-# Get Log Streams from the specified log group
-log_streams = get_log_streams(log_group_name) 
-log_stream_name = log_streams  # You can get the name from the log streams list
-get_log_events(log_group_name, log_stream_name)
+    print("Fetching log streams...")
+    return logs_client.describe_log_streams(
+        logGroupName=log_group_name,
+        orderBy='LastEventTime',
+        descending=True,
+        limit=5
+    )['logStreams']
+
+# Get Log Events
+def get_log_events(log_group_name, log_stream_name):
+    print(f"Fetching log events from {log_stream_name}...")
+    return logs_client.get_log_events(
+        logGroupName=log_group_name,
+        logStreamName=log_stream_name,
+        startFromHead=True
+    )['events']
+
+# Query Flow Logs
+end_time = int(datetime.datetime.now().timestamp() * 1000)
+start_time = end_time - 3600000  # Last hour in milliseconds
+
+flow_logs = get_flow_logs(log_group_name, start_time, end_time)
+print("VPC Flow Logs Analysis:")
+for log in flow_logs:
+    print(json.dumps(log, indent=4))
+
+# Get and analyze log streams
+log_streams = get_log_streams(log_group_name)
+if not log_streams:
+    print(f"No log streams found in {log_group_name}")
+else:
+    for stream in log_streams:
+        log_stream_name = stream['logStreamName']
+        log_events = get_log_events(log_group_name, log_stream_name)
+        for event in log_events:
+            print(f"Timestamp: {event['timestamp']}, Message: {event['message']}")
 
 # Print retrieved flow logs
 print("VPC Flow Logs Analysis:")
