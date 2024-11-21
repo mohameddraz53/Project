@@ -1,6 +1,4 @@
-                        
-                        ###----------------------------------------VPC_Peering_Connection_Project------------------------------------###
-                        
+                                  ##------------------------------------VPC_Peering_Connection_Project-------------------------------------------##
 import boto3
 import time
 import datetime 
