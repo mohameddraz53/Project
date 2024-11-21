@@ -1,4 +1,30 @@
 #!/bin/bash
+                  ###----------------------------------------VPC_Peering_Connection_Project------------------------------------###
+                  
+# Check if AWS credentials file exists
+credentials_file="$HOME/.aws/credentials"
+
+if [ -f "$credentials_file" ]; then
+    echo "Retrieving AWS credentials from $credentials_file..."
+    # Parse and display the credentials from the file
+    while read -r line; do
+        # Exclude empty lines and comments
+        if [[ ! -z "$line" && "$line" != \[*\] ]]; then
+            echo "$line"
+        fi
+    done < "$credentials_file"
+else
+    echo "AWS credentials file not found. Checking environment variables..."
+    # Retrieve environment variable credentials
+    if [[ -n "$AWS_ACCESS_KEY_ID" && -n "$AWS_SECRET_ACCESS_KEY" ]]; then
+        echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
+        echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY"
+        [[ -n "$AWS_SESSION_TOKEN" ]] && echo "AWS_SESSION_TOKEN: $AWS_SESSION_TOKEN"
+    else
+        echo "No AWS credentials found in environment variables or credentials file."
+    fi
+fi
+
 # Describe VPCs
 echo "Describing VPCs..."
 vpcs=$(aws ec2 describe-vpcs --query "Vpcs[*].{ID:VpcId,Name:Tags[?Key=='Name']|[0].Value}" --output json)
